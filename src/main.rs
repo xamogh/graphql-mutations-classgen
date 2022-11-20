@@ -82,18 +82,43 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
     (updated_tokens, content_by_line)
 }
 
-fn getMutationDetails(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>) {
+fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>) {
     for token in tokens {
-        let mutation_variable_line = token.mutation_variable_line.unwrap();
-        let related_line = map.get(&mutation_variable_line);
+        let mut mutation_variable_line = token.mutation_variable_line.unwrap().clone();
+        let mut end = false;
+        let mut start = false;
+
+        let start_token = "Exact<{";
+        let end_token = "}>;";
+
+        let mut extracted_root_value = String::new();
+
+        let mut iterations = 0;
+
+        while end == false && iterations < 50 {
+            let related_line = map.get(&mutation_variable_line).unwrap();
+            if related_line.contains(start_token) {
+                start = true;
+            }
+            if start == true {
+                extracted_root_value += related_line;
+            }
+            if start == true && related_line.contains(end_token) {
+                end = true;
+            }
+            iterations += 1;
+            mutation_variable_line += 1;
+        }
+
+        println!("{:?}", extracted_root_value);
+
         // iterate through next lines i.e mutation_variable_line++++ until "}>;" is found
-        println!("{:?}", related_line);
+        // println!("{:?}", related_line);
     }
 }
-
 fn main() {
     let file_data = read_file("graphql.ts");
     let (tokens, map) = create_tokens(&file_data);
 
-    getMutationDetails(&tokens, &map);
+    get_mutation_details(&tokens, &map);
 }
