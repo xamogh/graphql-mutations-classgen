@@ -3144,7 +3144,7 @@ export const DeleteUserDocument = gql`
   mutation deleteUser($id: Int!) {
     removeUser(id: $id) {
       id
-    }
+ ;   }
   }
 `;
 
