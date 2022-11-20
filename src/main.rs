@@ -1,16 +1,17 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fmt::format, fs};
 
 struct MutationToken {
     word: String,
     line_number: i32,
     mutation_variable: Option<String>,
+    mutation_variable_line: Option<i32>,
 }
 
 impl MutationToken {
     fn print(&self) -> () {
         println!(
-            "{} {} {:?}",
-            self.word, self.line_number, self.mutation_variable
+            "{} {} {:?} {:?}",
+            self.word, self.line_number, self.mutation_variable, self.mutation_variable_line
         );
     }
 }
@@ -34,10 +35,12 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
                         word: String::from(word),
                         line_number: i as i32,
                         mutation_variable: None,
+                        mutation_variable_line: None,
                     });
                 }
                 t if t.ends_with("MutationVariables") => {
-                    mutation_variables.push(String::from(word));
+                    let content = format!("{}____{}", word, i);
+                    mutation_variables.push(String::from(content));
                 }
                 _ => {}
             }
@@ -49,18 +52,29 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
     for token in tokens {
         let related_mutation_variable = mutation_variables.iter().find(|&x| {
             *x.replace("MutationVariables", "")
+                .replace("____", "")
+                .chars()
+                .filter(|c| !c.is_digit(10))
+                .collect::<String>()
                 == token
                     .word
                     .clone()
                     .replace("use", "")
                     .replace("Mutation()", "")
         });
+
         match related_mutation_variable {
-            Some(i) => updated_tokens.push(MutationToken {
-                word: token.word,
-                line_number: token.line_number,
-                mutation_variable: Some(i.to_string()),
-            }),
+            Some(mutation_variable) => {
+                let mut split_by_underscores = mutation_variable.split("____");
+                let mutation_variable_itself = split_by_underscores.next().unwrap();
+                let mutation_variable_line = split_by_underscores.next().unwrap();
+                updated_tokens.push(MutationToken {
+                    word: token.word,
+                    line_number: token.line_number,
+                    mutation_variable: Some(mutation_variable_itself.to_string()),
+                    mutation_variable_line: Some(mutation_variable_line.parse::<i32>().unwrap()),
+                });
+            }
             None => {}
         }
     }
@@ -68,13 +82,18 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
     (updated_tokens, content_by_line)
 }
 
+fn getMutationDetails(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>) {
+    for token in tokens {
+        let mutation_variable_line = token.mutation_variable_line.unwrap();
+        let related_line = map.get(&mutation_variable_line);
+        // iterate through next lines i.e mutation_variable_line++++ until "}>;" is found
+        println!("{:?}", related_line);
+    }
+}
+
 fn main() {
     let file_data = read_file("graphql.ts");
     let (tokens, map) = create_tokens(&file_data);
 
-    for token in tokens {
-        if token.mutation_variable.is_some() {
-            // find main query
-        }
-    }
+    getMutationDetails(&tokens, &map);
 }
