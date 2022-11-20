@@ -1,35 +1,54 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::fs;
 
-#[derive(Serialize, Deserialize, Debug)]
-struct GETAPIResponse {
-    origin: String,
+struct Token<'a> {
+    word: &'a str,
+    line_number: i32,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct JSONResponse {
-    json: HashMap<String, String>,
+impl Token<'_> {
+    fn print(&self) -> () {
+        println!("{} {}", self.word, self.line_number);
+    }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut map = HashMap::new();
-    map.insert("operationName", "IntrospectionQuery");
-    map.insert("query", "\n    query IntrospectionQuery {\n      __schema {\n        \n        queryType { name }\n        mutationType { name }\n        subscriptionType { name }\n        types {\n          ...FullType\n        }\n        directives {\n          name\n          description\n          \n          locations\n          args {\n            ...InputValue\n          }\n        }\n      }\n    }\n\n    fragment FullType on __Type {\n      kind\n      name\n      description\n      \n      fields(includeDeprecated: true) {\n        name\n        description\n        args {\n          ...InputValue\n        }\n        type {\n          ...TypeRef\n        }\n        isDeprecated\n        deprecationReason\n      }\n      inputFields {\n        ...InputValue\n      }\n      interfaces {\n        ...TypeRef\n      }\n      enumValues(includeDeprecated: true) {\n        name\n        description\n        isDeprecated\n        deprecationReason\n      }\n      possibleTypes {\n        ...TypeRef\n      }\n    }\n\n    fragment InputValue on __InputValue {\n      name\n      description\n      type { ...TypeRef }\n      defaultValue\n      \n      \n    }\n\n    fragment TypeRef on __Type {\n      kind\n      name\n      ofType {\n        kind\n        name\n        ofType {\n          kind\n          name\n          ofType {\n            kind\n            name\n            ofType {\n              kind\n              name\n              ofType {\n                kind\n                name\n                ofType {\n                  kind\n                  name\n                  ofType {\n                    kind\n                    name\n                  }\n                }\n              }\n            }\n          }\n        }\n      }\n    }\n  ");
-    let client = reqwest::Client::new();
-
-    let resp = client
-        .post("http://localhost:7200/api/graphql")
-        .json(&map)
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let json: serde_json::Value = serde_json::from_str(resp.as_str()).expect("JSON was not well-formatted");
-
-    println!("{:#?}", json);
-
-    Ok(())
+fn read_file(file_path: &str) -> String {
+    let file_data = fs::read_to_string(file_path)
+        .expect("Couldnt read the file, make sure the path is correct!");
+    return file_data;
 }
 
+fn get_tokens(content: &String) -> Vec<Token> {
+    let mut tokens: Vec<Token> = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        for word in line.split_whitespace() {
+            tokens.push(Token {
+                word,
+                line_number: i as i32,
+            });
+        }
+    }
+    tokens
+}
+
+fn get_mutation_queries_from_tokens(tokens: Vec<Token>) -> Vec<Token> {
+    let mut filtered_tokens: Vec<Token> = Vec::new();
+    for token in tokens {
+        match token.word {
+            t if t.starts_with("use") && t.ends_with("Mutation()") => {
+                println!("{}", token.word);
+                filtered_tokens.push(token);
+            }
+            _ => {}
+        }
+    }
+    filtered_tokens
+}
+
+fn main() {
+    let file_data = read_file("graphql.ts");
+    let tokens = get_tokens(&file_data);
+    let mutation_tokens = get_mutation_queries_from_tokens(tokens);
+    // for token in mutation_tokens {
+    //     token.print();
+    // }
+}
