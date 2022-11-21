@@ -59,7 +59,10 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
                 == token
                     .word
                     .clone()
-                    .replace("use", "")
+                    .chars()
+                    // skip "use"
+                    .skip(3)
+                    .collect::<String>()
                     .replace("Mutation()", "")
         });
 
@@ -110,7 +113,14 @@ fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>)
             mutation_variable_line += 1;
         }
 
-        println!("{:?}", extracted_root_value);
+        let start_bytes = extracted_root_value.find(start_token).unwrap_or(0);
+        let end_bytes = extracted_root_value
+            .find(end_token)
+            .unwrap_or(extracted_root_value.len());
+
+        let in_between = &extracted_root_value[(start_bytes)..end_bytes].replace(start_token, "");
+
+        println!("{:?}", in_between);
 
         // iterate through next lines i.e mutation_variable_line++++ until "}>;" is found
         // println!("{:?}", related_line);
