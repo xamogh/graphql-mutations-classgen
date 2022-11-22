@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::format, fs};
+use std::{collections::HashMap, fmt::format, fs, hash::Hash};
 
 struct MutationToken {
     word: String,
@@ -22,13 +22,23 @@ fn read_file(file_path: &str) -> String {
     return file_data;
 }
 
-fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>) {
+fn create_tokens(
+    content: &String,
+) -> (
+    Vec<MutationToken>,
+    HashMap<i32, String>,
+    HashMap<String, i32>,
+) {
     let mut tokens: Vec<MutationToken> = Vec::new();
     let mut mutation_variables: Vec<String> = Vec::new();
     let mut content_by_line: HashMap<i32, String> = HashMap::new();
+    let mut line_by_word_token: HashMap<String, i32> = HashMap::new();
     for (i, line) in content.lines().enumerate() {
         content_by_line.insert(i as i32, String::from(line));
         for word in line.split_whitespace() {
+            if !(line_by_word_token.contains_key(word)) {
+                line_by_word_token.insert(String::from(word), i as i32);
+            }
             match word {
                 t if t.starts_with("use") && t.ends_with("Mutation()") => {
                     tokens.push(MutationToken {
@@ -82,10 +92,10 @@ fn create_tokens(content: &String) -> (Vec<MutationToken>, HashMap<i32, String>)
         }
     }
 
-    (updated_tokens, content_by_line)
+    (updated_tokens, content_by_line, line_by_word_token)
 }
 
-fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>) {
+fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>, r_map: &HashMap<String, i32>) {
     for token in tokens {
         let mut mutation_variable_line = token.mutation_variable_line.unwrap().clone();
         let mut end = false;
@@ -120,7 +130,29 @@ fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>)
 
         let in_between = &extracted_root_value[(start_bytes)..end_bytes].replace(start_token, "");
 
-        println!("{:?}", in_between);
+        let mut inner_tokens: Vec<String> = Vec::new();
+
+        for t in in_between.split(";") {
+            let mut split = t.split(":");
+            let mut kv_tuple = (split.next().unwrap_or(""), split.next().unwrap_or(""));
+            kv_tuple.0 = kv_tuple.0.trim();
+            kv_tuple.1 = kv_tuple.1.trim();
+
+            if !kv_tuple.0.is_empty() && !kv_tuple.1.is_empty() {
+                if kv_tuple.1.contains("Scalar") {
+                    // no need to go deep
+                    // println!("{:?} {:?}", kv_tuple, token.word);
+                } else {
+                    // go deep
+                    let z = r_map.get(kv_tuple.1).unwrap();
+                    let p = map.get(z);
+                    println!("{:?} {:?} {:?}", z, p, kv_tuple);
+                }
+                // println!("{:?}", kv_tuple);
+            }
+        }
+
+        // println!("{:?} --------------- {:?}", in_between, token.word);
 
         // iterate through next lines i.e mutation_variable_line++++ until "}>;" is found
         // println!("{:?}", related_line);
@@ -128,7 +160,7 @@ fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>)
 }
 fn main() {
     let file_data = read_file("graphql.ts");
-    let (tokens, map) = create_tokens(&file_data);
+    let (tokens, map, r_map) = create_tokens(&file_data);
 
-    get_mutation_details(&tokens, &map);
+    get_mutation_details(&tokens, &map, &r_map);
 }
