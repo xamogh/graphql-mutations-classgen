@@ -7,6 +7,13 @@ struct MutationToken {
     mutation_variable_line: Option<i32>,
 }
 
+#[derive(Debug)]
+struct GeneratedMutationToken {
+    mutation_name: String,
+    mutation_line: i32,
+    mutation_kv_variables: (String, String),
+}
+
 impl MutationToken {
     fn print(&self) -> () {
         println!(
@@ -95,62 +102,98 @@ fn create_tokens(
     (updated_tokens, content_by_line, line_by_word_token)
 }
 
-fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>, r_map: &HashMap<String, i32>) {
+fn extract_between_tokens_from_line(
+    start_token: &str,
+    end_token: &str,
+    start_line: i32,
+    map: &HashMap<i32, String>,
+) -> String {
+    let mut mutation_variable_line = start_line.clone();
+    let mut end = false;
+    let mut start = false;
+
+    let mut extracted_root_value = String::new();
+
+    let mut iterations = 0;
+
+    while end == false && iterations < 500 {
+        let related_line = map.get(&mutation_variable_line).unwrap();
+        if related_line.contains(start_token) {
+            start = true;
+        }
+        if start == true {
+            extracted_root_value += related_line;
+        }
+        if start == true && related_line.contains(end_token) {
+            end = true;
+        }
+        iterations += 1;
+        mutation_variable_line += 1;
+    }
+
+    let start_bytes = extracted_root_value.find(start_token).unwrap_or(0);
+    let end_bytes = extracted_root_value
+        .find(end_token)
+        .unwrap_or(extracted_root_value.len());
+
+    let in_between = &extracted_root_value[(start_bytes)..end_bytes].replace(start_token, "");
+    in_between.to_string()
+}
+
+fn get_mutation_details(
+    tokens: &Vec<MutationToken>,
+    map: &HashMap<i32, String>,
+    r_map: &HashMap<String, i32>,
+    collector: &mut Vec<GeneratedMutationToken>,
+) {
     for token in tokens {
-        let mut mutation_variable_line = token.mutation_variable_line.unwrap().clone();
-        let mut end = false;
-        let mut start = false;
+        fn dox(
+            token: &MutationToken,
+            in_between: &str,
+            map: &HashMap<i32, String>,
+            r_map: &HashMap<String, i32>,
+            collector: &mut Vec<GeneratedMutationToken>,
+        ) {
+            for t in in_between.split(";") {
+                let mut split = t.split(":");
+                let mut kv_tuple = (split.next().unwrap_or(""), split.next().unwrap_or(""));
+                kv_tuple.0 = kv_tuple.0.trim();
+                kv_tuple.1 = kv_tuple.1.trim();
 
-        let start_token = "Exact<{";
-        let end_token = "}>;";
+                if !kv_tuple.0.is_empty() && !kv_tuple.1.is_empty() {
+                    if kv_tuple.1.contains("Scalar") {
+                        // no need to go deep
+                        // println!("{:?} {:?}", kv_tuple, token.word);
+                        collector.push(GeneratedMutationToken {
+                            mutation_name: token.word.clone(),
+                            mutation_line: token.line_number,
+                            mutation_kv_variables: (kv_tuple.0.to_string(), kv_tuple.1.to_string()),
+                        })
+                    } else {
+                        // go deep infinite
+                        let in_between = extract_between_tokens_from_line(
+                            "{",
+                            "};",
+                            r_map.get(kv_tuple.1).unwrap().clone(),
+                            map,
+                        );
 
-        let mut extracted_root_value = String::new();
-
-        let mut iterations = 0;
-
-        while end == false && iterations < 50 {
-            let related_line = map.get(&mutation_variable_line).unwrap();
-            if related_line.contains(start_token) {
-                start = true;
-            }
-            if start == true {
-                extracted_root_value += related_line;
-            }
-            if start == true && related_line.contains(end_token) {
-                end = true;
-            }
-            iterations += 1;
-            mutation_variable_line += 1;
-        }
-
-        let start_bytes = extracted_root_value.find(start_token).unwrap_or(0);
-        let end_bytes = extracted_root_value
-            .find(end_token)
-            .unwrap_or(extracted_root_value.len());
-
-        let in_between = &extracted_root_value[(start_bytes)..end_bytes].replace(start_token, "");
-
-        let mut inner_tokens: Vec<String> = Vec::new();
-
-        for t in in_between.split(";") {
-            let mut split = t.split(":");
-            let mut kv_tuple = (split.next().unwrap_or(""), split.next().unwrap_or(""));
-            kv_tuple.0 = kv_tuple.0.trim();
-            kv_tuple.1 = kv_tuple.1.trim();
-
-            if !kv_tuple.0.is_empty() && !kv_tuple.1.is_empty() {
-                if kv_tuple.1.contains("Scalar") {
-                    // no need to go deep
-                    // println!("{:?} {:?}", kv_tuple, token.word);
-                } else {
-                    // go deep
-                    let z = r_map.get(kv_tuple.1).unwrap();
-                    let p = map.get(z);
-                    println!("{:?} {:?} {:?}", z, p, kv_tuple);
+                        dox(token, &in_between, map, r_map, collector);
+                        println!("{:?}\n", in_between);
+                    }
+                    // println!("{:?}", kv_tuple);
                 }
-                // println!("{:?}", kv_tuple);
             }
         }
+
+        let in_between = extract_between_tokens_from_line(
+            "Exact<{",
+            "}>;",
+            token.mutation_variable_line.unwrap().clone(),
+            map,
+        );
+
+        dox(token, &in_between, map, r_map, collector);
 
         // println!("{:?} --------------- {:?}", in_between, token.word);
 
@@ -160,7 +203,14 @@ fn get_mutation_details(tokens: &Vec<MutationToken>, map: &HashMap<i32, String>,
 }
 fn main() {
     let file_data = read_file("graphql.ts");
+
     let (tokens, map, r_map) = create_tokens(&file_data);
 
-    get_mutation_details(&tokens, &map, &r_map);
+    let mut gen_collector: Vec<GeneratedMutationToken> = Vec::new();
+
+    get_mutation_details(&tokens, &map, &r_map, &mut gen_collector);
+
+    for item in gen_collector {
+        // println!("{:?} \n", item);
+    }
 }
