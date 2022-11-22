@@ -14,6 +14,19 @@ struct GeneratedMutationToken {
     mutation_kv_variables: (String, String),
 }
 
+#[derive(Clone, Debug)]
+struct AggregatedMutationTokens {
+    mutation_name: String,
+    mutation_line: i32,
+    mutation_kv_variables: Vec<(String, String)>,
+}
+
+impl AggregatedMutationTokens {
+    fn add_to_mutation_kv_variables(&mut self, v: (String, String)) -> () {
+        self.mutation_kv_variables.push(v);
+    }
+}
+
 impl MutationToken {
     fn print(&self) -> () {
         println!(
@@ -163,7 +176,6 @@ fn get_mutation_details(
                 if !kv_tuple.0.is_empty() && !kv_tuple.1.is_empty() {
                     if kv_tuple.1.contains("Scalar") {
                         // no need to go deep
-                        // println!("{:?} {:?}", kv_tuple, token.word);
                         collector.push(GeneratedMutationToken {
                             mutation_name: token.word.clone(),
                             mutation_line: token.line_number,
@@ -179,9 +191,7 @@ fn get_mutation_details(
                         );
 
                         dox(token, &in_between, map, r_map, collector);
-                        println!("{:?}\n", in_between);
                     }
-                    // println!("{:?}", kv_tuple);
                 }
             }
         }
@@ -194,23 +204,50 @@ fn get_mutation_details(
         );
 
         dox(token, &in_between, map, r_map, collector);
-
-        // println!("{:?} --------------- {:?}", in_between, token.word);
-
-        // iterate through next lines i.e mutation_variable_line++++ until "}>;" is found
-        // println!("{:?}", related_line);
     }
 }
+
+fn aggregate_generated_mutation_tokens(
+    collector: Vec<GeneratedMutationToken>,
+) -> Vec<AggregatedMutationTokens> {
+    let mut aggregated_tokens: Vec<AggregatedMutationTokens> = Vec::new();
+
+    for token in collector {
+        let idx = aggregated_tokens.iter().position(|r| {
+            r.mutation_name == token.mutation_name && r.mutation_line == token.mutation_line
+        });
+        if idx.is_none() {
+            aggregated_tokens.push(AggregatedMutationTokens {
+                mutation_name: token.mutation_name,
+                mutation_line: token.mutation_line,
+                mutation_kv_variables: [token.mutation_kv_variables].to_vec(),
+            });
+        } else {
+            let index = idx.unwrap();
+            let element = &mut aggregated_tokens[index];
+            element.add_to_mutation_kv_variables(token.mutation_kv_variables);
+        }
+    }
+
+    return aggregated_tokens;
+}
+
 fn main() {
     let file_data = read_file("graphql.ts");
 
     let (tokens, map, r_map) = create_tokens(&file_data);
 
-    let mut gen_collector: Vec<GeneratedMutationToken> = Vec::new();
+    let mut generated_tokens_collector: Vec<GeneratedMutationToken> = Vec::new();
 
-    get_mutation_details(&tokens, &map, &r_map, &mut gen_collector);
+    get_mutation_details(&tokens, &map, &r_map, &mut generated_tokens_collector);
 
-    for item in gen_collector {
-        // println!("{:?} \n", item);
+    let aggregated_tokens = aggregate_generated_mutation_tokens(generated_tokens_collector);
+
+    for token in aggregated_tokens {
+        println!("{:?} {:?}", token.mutation_name, token.mutation_line);
+        for z in token.mutation_kv_variables {
+            println!("{:?}", z);
+        }
+        println!("\n\n");
     }
 }
