@@ -1,3 +1,4 @@
+use std::io::prelude::*;
 use std::{collections::HashMap, fmt::format, fs, hash::Hash};
 
 struct MutationToken {
@@ -25,6 +26,27 @@ struct AggregatedMutationTokens {
 impl AggregatedMutationTokens {
     fn add_to_mutation_kv_variables(&mut self, v: (String, String, String)) -> () {
         self.mutation_kv_variables.push(v);
+    }
+
+    fn create_import_statement(&self, read_file_path: &str) -> String {
+        let import_statement = format!(
+            "import {{{}}} from '{}'",
+            self.mutation_name.replace("()", ""),
+            read_file_path
+        );
+        import_statement
+    }
+
+    fn create_mutation(&self) -> String {
+        let mutation_start = format!("export function {} {{", self.mutation_name);
+        let mutation_end = format!("}};");
+        let root_mutation_name = self.mutation_name.replace("()", "").replace("use", "");
+        let urql_mutation = format!(
+            "const [mutationState, mutationFn] = Urql.useMutation<{}, {}Variables>({}Document);",
+            root_mutation_name, root_mutation_name, root_mutation_name
+        );
+        let rt = format!("{}\n{}\n{}", &mutation_start, &urql_mutation, &mutation_end);
+        rt
     }
 }
 
@@ -166,7 +188,7 @@ fn get_mutation_details(
             map: &HashMap<i32, String>,
             r_map: &HashMap<String, i32>,
             collector: &mut Vec<GeneratedMutationToken>,
-            parent: String
+            parent: String,
         ) {
             for t in in_between.split(";") {
                 let mut split = t.split(":");
@@ -180,7 +202,11 @@ fn get_mutation_details(
                         collector.push(GeneratedMutationToken {
                             mutation_name: token.word.clone(),
                             mutation_line: token.line_number,
-                            mutation_kv_variables: (kv_tuple.0.to_string(), kv_tuple.1.to_string(), parent.clone()),
+                            mutation_kv_variables: (
+                                kv_tuple.0.to_string(),
+                                kv_tuple.1.to_string(),
+                                parent.clone(),
+                            ),
                         })
                     } else {
                         let in_between = extract_between_tokens_from_line(
@@ -190,7 +216,15 @@ fn get_mutation_details(
                             map,
                         );
                         // go deep infinite
-                        dox(token, &in_between, map, r_map, collector, kv_tuple.0.to_string());
+                        let new_parent;
+
+                        if parent.is_empty() {
+                            new_parent = format!("{}", kv_tuple.0.to_string());
+                        } else {
+                            new_parent = format!("{}[{}]", parent, kv_tuple.0.to_string());
+                        }
+
+                        dox(token, &in_between, map, r_map, collector, new_parent);
                     }
                 }
             }
@@ -203,7 +237,7 @@ fn get_mutation_details(
             map,
         );
 
-        dox(token, &in_between, map, r_map, collector, token.word.clone());
+        dox(token, &in_between, map, r_map, collector, "".to_string());
     }
 }
 
@@ -233,7 +267,8 @@ fn aggregate_generated_mutation_tokens(
 }
 
 fn main() {
-    let file_data = read_file("graphql.ts");
+    const READ_FILE_PATH: &str = "graphql.ts";
+    let file_data = read_file(READ_FILE_PATH);
 
     let (tokens, map, r_map) = create_tokens(&file_data);
 
@@ -243,11 +278,25 @@ fn main() {
 
     let aggregated_tokens = aggregate_generated_mutation_tokens(generated_tokens_collector);
 
+    // for token in aggregated_tokens {
+    //     println!("{:?} {:?}", token.mutation_name, token.mutation_line);
+    //     for z in token.mutation_kv_variables {
+    //         println!("{:?}", z);
+    //     }
+    //     println!("\n");
+    // }
+
+    // for token in aggregated_tokens {
+    //     println!("{}", token.create_import_statement(&READ_FILE_PATH));
+    // }
+
     for token in aggregated_tokens {
-        println!("{:?} {:?}", token.mutation_name, token.mutation_line);
-        for z in token.mutation_kv_variables {
-            println!("{:?}", z);
-        }
-        println!("\n");
+        println!("{}", token.create_import_statement(&READ_FILE_PATH));
+        println!("{}", token.create_mutation());
     }
+
+    let mut output =
+        fs::File::create("gen.ts").expect("Something went wrong, couldnt create a output file");
+
+    output.write_all(b"Hello world");
 }
