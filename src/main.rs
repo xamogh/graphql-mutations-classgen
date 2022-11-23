@@ -11,18 +11,19 @@ struct MutationToken {
 struct GeneratedMutationToken {
     mutation_name: String,
     mutation_line: i32,
-    mutation_kv_variables: (String, String),
+    // kev, value, parent
+    mutation_kv_variables: (String, String, String),
 }
 
 #[derive(Clone, Debug)]
 struct AggregatedMutationTokens {
     mutation_name: String,
     mutation_line: i32,
-    mutation_kv_variables: Vec<(String, String)>,
+    mutation_kv_variables: Vec<(String, String, String)>,
 }
 
 impl AggregatedMutationTokens {
-    fn add_to_mutation_kv_variables(&mut self, v: (String, String)) -> () {
+    fn add_to_mutation_kv_variables(&mut self, v: (String, String, String)) -> () {
         self.mutation_kv_variables.push(v);
     }
 }
@@ -90,7 +91,6 @@ fn create_tokens(
                     .word
                     .clone()
                     .chars()
-                    // skip "use"
                     .skip(3)
                     .collect::<String>()
                     .replace("Mutation()", "")
@@ -166,6 +166,7 @@ fn get_mutation_details(
             map: &HashMap<i32, String>,
             r_map: &HashMap<String, i32>,
             collector: &mut Vec<GeneratedMutationToken>,
+            parent: String
         ) {
             for t in in_between.split(";") {
                 let mut split = t.split(":");
@@ -179,18 +180,17 @@ fn get_mutation_details(
                         collector.push(GeneratedMutationToken {
                             mutation_name: token.word.clone(),
                             mutation_line: token.line_number,
-                            mutation_kv_variables: (kv_tuple.0.to_string(), kv_tuple.1.to_string()),
+                            mutation_kv_variables: (kv_tuple.0.to_string(), kv_tuple.1.to_string(), parent.clone()),
                         })
                     } else {
-                        // go deep infinite
                         let in_between = extract_between_tokens_from_line(
                             "{",
                             "};",
                             r_map.get(kv_tuple.1).unwrap().clone(),
                             map,
                         );
-
-                        dox(token, &in_between, map, r_map, collector);
+                        // go deep infinite
+                        dox(token, &in_between, map, r_map, collector, kv_tuple.0.to_string());
                     }
                 }
             }
@@ -203,7 +203,7 @@ fn get_mutation_details(
             map,
         );
 
-        dox(token, &in_between, map, r_map, collector);
+        dox(token, &in_between, map, r_map, collector, token.word.clone());
     }
 }
 
@@ -248,6 +248,6 @@ fn main() {
         for z in token.mutation_kv_variables {
             println!("{:?}", z);
         }
-        println!("\n\n");
+        println!("\n");
     }
 }
