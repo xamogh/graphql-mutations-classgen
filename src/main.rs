@@ -1,10 +1,9 @@
 use std::io::prelude::*;
-use std::{collections::HashMap, fmt::format, fs, hash::Hash};
+use std::{collections::HashMap, fs};
 
 struct MutationToken {
     word: String,
     line_number: i32,
-    mutation_variable: Option<String>,
     mutation_variable_line: Option<i32>,
 }
 
@@ -28,40 +27,60 @@ impl AggregatedMutationTokens {
         self.mutation_kv_variables.push(v);
     }
 
-    fn create_import_statement(&self, read_file_path: &str) -> String {
-        let import_statement = format!(
-            "import {{{}}} from '{}'",
-            self.mutation_name.replace("()", ""),
-            read_file_path
+    fn create_import_statement(&self) -> String {
+        let root_mutation_name = self.mutation_name.replace("()", "").replace("use", "");
+        let import_statement_core = format!(
+            "import {{{}, {}Variables, {}Document}} from './graphql';",
+            root_mutation_name,
+            root_mutation_name,
+            root_mutation_name.replace("Mutation", ""),
         );
-        import_statement
+        import_statement_core
     }
 
     fn create_mutation(&self) -> String {
-        let mutation_start = format!("export function {} {{", self.mutation_name);
+        let mutation_start = format!("export function safe_{} {{", self.mutation_name);
         let mutation_end = format!("}};");
         let root_mutation_name = self.mutation_name.replace("()", "").replace("use", "");
         let urql_mutation = format!(
-            "const [mutationState, mutationFn] = Urql.useMutation<{}, {}Variables>({}Document);",
-            root_mutation_name, root_mutation_name, root_mutation_name
+            "const [m1, m2] = Urql.useMutation<{}, {}Variables>({}Document);",
+            root_mutation_name,
+            root_mutation_name,
+            root_mutation_name.replace("Mutation", "")
         );
-        let rt = format!("{}\n{}\n{}", &mutation_start, &urql_mutation, &mutation_end);
+
+        let mut keys = String::new();
+
+        for (i, tuple) in self.mutation_kv_variables.iter().enumerate() {
+            if i == 0 {
+                keys += &format!("'{}'", tuple.0.replace("?", ""));
+            } else {
+                keys += &format!(",'{}'", tuple.0.replace("?", ""));
+            }
+        }
+
+        let injected_fn_and_ret = format!(
+            "const m3 = (args: {}Variables) => {{
+                const r = [{}];
+                checkAndRemoveDeep(r, args);
+                    return m2(args);
+            }};
+            return [m1, m3] as Urql.UseMutationResponse<
+            {},
+            {}Variables>;",
+            root_mutation_name, keys, root_mutation_name, root_mutation_name
+        );
+        let rt = format!(
+            "{}\n{}\n{}\n{}",
+            &mutation_start, &urql_mutation, &injected_fn_and_ret, &mutation_end
+        );
         rt
     }
 }
 
-impl MutationToken {
-    fn print(&self) -> () {
-        println!(
-            "{} {} {:?} {:?}",
-            self.word, self.line_number, self.mutation_variable, self.mutation_variable_line
-        );
-    }
-}
-
-fn read_file(file_path: &str) -> String {
-    let file_data = fs::read_to_string(file_path)
-        .expect("Couldnt read the file, make sure the path is correct!");
+fn read_file(file_path: &str, msg: &str) -> String {
+    println!("{}", file_path);
+    let file_data = fs::read_to_string(file_path).expect(msg);
     return file_data;
 }
 
@@ -87,7 +106,6 @@ fn create_tokens(
                     tokens.push(MutationToken {
                         word: String::from(word),
                         line_number: i as i32,
-                        mutation_variable: None,
                         mutation_variable_line: None,
                     });
                 }
@@ -121,12 +139,11 @@ fn create_tokens(
         match related_mutation_variable {
             Some(mutation_variable) => {
                 let mut split_by_underscores = mutation_variable.split("____");
-                let mutation_variable_itself = split_by_underscores.next().unwrap();
+                split_by_underscores.next().unwrap();
                 let mutation_variable_line = split_by_underscores.next().unwrap();
                 updated_tokens.push(MutationToken {
                     word: token.word,
                     line_number: token.line_number,
-                    mutation_variable: Some(mutation_variable_itself.to_string()),
                     mutation_variable_line: Some(mutation_variable_line.parse::<i32>().unwrap()),
                 });
             }
@@ -216,6 +233,15 @@ fn get_mutation_details(
                             map,
                         );
                         // go deep infinite
+                        collector.push(GeneratedMutationToken {
+                            mutation_name: token.word.clone(),
+                            mutation_line: token.line_number,
+                            mutation_kv_variables: (
+                                kv_tuple.0.to_string(),
+                                kv_tuple.1.to_string(),
+                                parent.clone(),
+                            ),
+                        });
                         let new_parent;
 
                         if parent.is_empty() {
@@ -266,9 +292,42 @@ fn aggregate_generated_mutation_tokens(
     return aggregated_tokens;
 }
 
+fn write_constants(f: &mut fs::File) -> () {
+    let core_imports = format!("import * as Urql from 'urql';");
+    let js_remove_and_warn_deep_fn = "
+    function checkAndRemoveDeep(toCheckKeys: Array<string>, arg: any) {
+      if (!arg || typeof arg !== 'object' || Object.keys(arg).length === 0) return;
+      Object.keys(arg).forEach((k) => {
+        if (!toCheckKeys.includes(k)) {
+          console.error('unwanted mutation key detected please remove it', arg, k);
+          if (process.env.NODE_ENV !== 'production') {
+              window.alert(
+                `unwanted mutation key detected please remove it\nunwanted_key= '${k}'\non_object = ${JSON.stringify(arg)}`
+              );
+          }
+          delete arg[k];
+        }
+        checkAndRemoveDeep(toCheckKeys, arg[k]);
+      });
+    };";
+    f.write(core_imports.as_bytes()).unwrap();
+    f.write(js_remove_and_warn_deep_fn.as_bytes()).unwrap();
+}
+
 fn main() {
-    const READ_FILE_PATH: &str = "graphql.ts";
-    let file_data = read_file(READ_FILE_PATH);
+    const CONFIG_FILE_PATH: &str = "safe-urqlcodgen-mutations.conf";
+    let config_file = read_file(CONFIG_FILE_PATH, "Could not find config file.\n Please add a config file named safe-urqlcodegen-mutations.conf to your root directory. \n generated_path={path_of_your_codegen_generated_file}, eg: generated_path=src/@generated");
+    let mut root_path = String::from("");
+    for line in config_file.lines() {
+        let mut splitter = line.split("=");
+        let k = splitter.next().unwrap_or("");
+        let v = splitter.next().unwrap_or("");
+        if k == "generated_path" {
+            root_path = String::from(v);
+        }
+    }
+
+    let file_data = read_file(&format!("{}/graphql.ts", root_path), "failed to read urqlcodegen file");
 
     let (tokens, map, r_map) = create_tokens(&file_data);
 
@@ -278,25 +337,17 @@ fn main() {
 
     let aggregated_tokens = aggregate_generated_mutation_tokens(generated_tokens_collector);
 
-    // for token in aggregated_tokens {
-    //     println!("{:?} {:?}", token.mutation_name, token.mutation_line);
-    //     for z in token.mutation_kv_variables {
-    //         println!("{:?}", z);
-    //     }
-    //     println!("\n");
-    // }
-
-    // for token in aggregated_tokens {
-    //     println!("{}", token.create_import_statement(&READ_FILE_PATH));
-    // }
-
-    for token in aggregated_tokens {
-        println!("{}", token.create_import_statement(&READ_FILE_PATH));
-        println!("{}", token.create_mutation());
-    }
+    let output_path = format!("{}/gen.ts", root_path);
 
     let mut output =
-        fs::File::create("gen.ts").expect("Something went wrong, couldnt create a output file");
+        fs::File::create(output_path).expect("Something went wrong, couldnt create a output file");
 
-    output.write_all(b"Hello world");
+    write_constants(&mut output);
+
+    for token in aggregated_tokens {
+        output
+            .write(token.create_import_statement().as_bytes())
+            .unwrap();
+        output.write(token.create_mutation().as_bytes()).unwrap();
+    }
 }
