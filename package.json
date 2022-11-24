@@ -9,7 +9,7 @@
     "preinstall": "node npm/uninstall.js"
   },
   "files": [
-    "npm/*/**"
+    "npm/**/*"
   ],
   "bin": {
     "safe-urqlcodgen-mutations": "./npm/run.js"
