@@ -1,31 +1,25 @@
 {
   "name": "safe-urqlcodgen-mutations",
-  "version": "1.0.8",
-  "description": "#### Reads codegen generated graphql.ts file, then catches all the mutations, enhances them with excess property filters and warnings, and writes into a new generated file.",
-  "main": "index.js",
+  "version": "0.1.0",
+  
+  "main": "start.js",
+  "directories": {
+    "test": "tests"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "postinstall": "node npm/install.js",
-    "preinstall": "node npm/uninstall.js"
-  },
-  "files": [
-    "npm/**/*"
-  ],
-  "bin": {
-    "safe-urqlcodgen-mutations": "./npm/run.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/xamogh/safe-urqlcodgen-mutations.git"
+    "postinstall": "node ./pre-install.js",
+    "uninstall": "node ./uninstall.js"
   },
   "keywords": [],
-  "author": "xamogh",
+  
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/xamogh/safe-urqlcodgen-mutations/issues"
-  },
-  "homepage": "https://github.com/xamogh/safe-urqlcodgen-mutations#readme",
-  "dependencies": {
-    "binary-install": "^1.0.6"
-  }
+  "files": [
+    "pre-install.js",
+    "start.js",
+    "uninstall.js",
+    "README.md",
+    "LICENSE"
+  ]
 }
+    
