@@ -1,10 +1,16 @@
 [package]
 name = "safe-urqlcodgen-mutations"
-version = "0.1.0"
-edition = "2021"
+version = "2.0.1"
+edition = "2022"
+description = "deploy a rust project to npm in one command."
+repository = "https://github.com/xamogh/safe-urqlcodgen-mutations"
+readme = "README.md"
+keywords = ["gql-urql-codgen", "npm", "rust"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
+license = "MIT"
+homepage = "https://github.com/xamogh/safe-urqlcodgen-mutations"
+authors = ["Amogh Rijal <xamoghx@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
-
