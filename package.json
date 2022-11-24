@@ -1,6 +1,6 @@
 {
   "name": "safe-urqlcodgen-mutations",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "#### Reads codegen generated graphql.ts file, then catches all the mutations, enhances them with excess property filters and warnings, and writes into a new generated file.",
   "main": "index.js",
   "scripts": {
